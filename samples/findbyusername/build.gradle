@@ -7,11 +7,10 @@ buildscript {
 	}
 }
 
-apply plugin: 'spring-boot'
+apply plugin: 'org.springframework.boot'
 
 apply from: JAVA_GRADLE
-
-tasks.findByPath("artifactoryPublish")?.enabled = false
+apply from: SAMPLE_GRADLE
 
 group = 'samples'
 
@@ -19,15 +18,18 @@ dependencies {
 	compile project(':spring-session'),
 			"org.springframework.boot:spring-boot-starter-redis",
 			"org.springframework.boot:spring-boot-starter-web",
+			"org.springframework.boot:spring-boot-starter-security",
 			"org.springframework.boot:spring-boot-starter-thymeleaf",
 			"nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect",
-			"org.springframework.security:spring-security-web:$springSecurityVersion",
-			"org.springframework.security:spring-security-config:$springSecurityVersion",
+			"org.thymeleaf.extras:thymeleaf-extras-conditionalcomments",
+			"org.webjars:bootstrap:$bootstrapVersion",
+			"org.webjars:html5shiv:$html5ShivVersion",
+			"org.webjars:webjars-locator",
 			"com.maxmind.geoip2:geoip2:2.3.1",
-			"org.apache.httpcomponents:httpclient:4.4.1"
+			"org.apache.httpcomponents:httpclient"
 
 	testCompile "org.springframework.boot:spring-boot-starter-test",
-				'org.easytesting:fest-assert:1.4'
+				"org.assertj:assertj-core:$assertjVersion"
 
 	integrationTestCompile gebDependencies,
 			"org.spockframework:spock-spring:$spockVersion"

@@ -3,7 +3,9 @@
 Spring Session is released under the Apache 2.0 license. If you would like to contribute
 something, or simply want to hack on the code this document should help you get started.
 
-
+== Code of Conduct
+This project adheres to the Contributor Covenant link:CODE_OF_CONDUCT.adoc[code of conduct].
+By participating, you  are expected to uphold this code. Please report unacceptable behavior to spring-code-of-conduct@pivotal.io.
 
 == Using GitHub issues
 
@@ -19,12 +21,6 @@ reproduces the problem.
 
 
 == Sign the Contributor License Agreement
-Before we accept a non-trivial patch or pull request we will need you to sign the
-https://support.springsource.com/spring_committer_signup[contributor's agreement].
-If you have previously signed the CLA for any project, there is no need to sign up again.
-Signing the contributor's agreement does not grant anyone commit rights to the main
-repository, but it does mean that we can accept your contributions, and you will get an
-author credit if we do.  Active contributors might be asked to join the core team, and
-given the ability to merge pull requests. Use the project `Spring Security` (the parent project)
-and '`Rob Winch`' in the project lead field when you complete the form.
+If you have not previously done so, please fill out and
+submit the https://cla.pivotal.io/sign/spring[Contributor License Agreement].
 

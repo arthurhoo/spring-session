@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,20 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package sample;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.StreamSerializer;
 
 /**
- * A {@link StreamSerializer} that uses Java serialization to persist the
- * session. This is certainly not the most efficient way to persist sessions,
- * but the example is intended to demonstrate using minimal dependencies. For
- * better serialization methods try using <a
- * href="https://github.com/EsotericSoftware/kryo">Kryo</a>.
+ * A {@link StreamSerializer} that uses Java serialization to persist the session. This is
+ * certainly not the most efficient way to persist sessions, but the example is intended
+ * to demonstrate using minimal dependencies. For better serialization methods try using
+ * <a href="https://github.com/EsotericSoftware/kryo">Kryo</a>.
  *
  * @author Rob Winch
  *
@@ -37,18 +41,18 @@ public class ObjectStreamSerializer implements StreamSerializer<Object> {
 	}
 
 	public void write(ObjectDataOutput objectDataOutput, Object object)
-		   throws IOException {
+			throws IOException {
 		ObjectOutputStream out = new ObjectOutputStream((OutputStream) objectDataOutput);
 		out.writeObject(object);
 		out.flush();
 	}
 
-	public Object read(ObjectDataInput objectDataInput)
-		   throws IOException {
+	public Object read(ObjectDataInput objectDataInput) throws IOException {
 		ObjectInputStream in = new ObjectInputStream((InputStream) objectDataInput);
 		try {
 			return in.readObject();
-		} catch (ClassNotFoundException e) {
+		}
+		catch (ClassNotFoundException e) {
 			throw new IOException(e);
 		}
 	}

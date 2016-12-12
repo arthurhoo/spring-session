@@ -1,43 +1,55 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not
- * use this file except in compliance with the License. You may obtain a copy of
- * the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations under
- * the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package docs;
 
-import static org.fest.assertions.Assertions.assertThat;
-
+import com.hazelcast.config.Config;
+import com.hazelcast.core.Hazelcast;
+import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.core.IMap;
 import org.junit.Test;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
+
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.session.ExpiringSession;
+import org.springframework.session.MapSession;
 import org.springframework.session.MapSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 import org.springframework.session.data.redis.RedisOperationsSessionRepository;
+import org.springframework.session.hazelcast.HazelcastSessionRepository;
+import org.springframework.session.jdbc.JdbcOperationsSessionRepository;
 import org.springframework.session.web.http.SessionRepositoryFilter;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Rob Winch
+ * @author Vedran Pavic
  */
 public class IndexDocTests {
 	static final String ATTR_USER = "user";
 
 	@Test
 	public void repositoryDemo() {
-		ExpiringRepositoryDemo<ExpiringSession> demo = new ExpiringRepositoryDemo<ExpiringSession>();
+		RepositoryDemo<ExpiringSession> demo = new RepositoryDemo<ExpiringSession>();
 		demo.repository = new MapSessionRepository();
 
 		demo.demo();
@@ -48,15 +60,15 @@ public class IndexDocTests {
 		private SessionRepository<S> repository; // <1>
 
 		public void demo() {
-			S toSave = repository.createSession(); // <2>
+			S toSave = this.repository.createSession(); // <2>
 
 			// <3>
 			User rwinch = new User("rwinch");
 			toSave.setAttribute(ATTR_USER, rwinch);
 
-			repository.save(toSave); // <4>
+			this.repository.save(toSave); // <4>
 
-			S session = repository.getSession(toSave.getId()); // <5>
+			S session = this.repository.getSession(toSave.getId()); // <5>
 
 			// <6>
 			User user = session.getAttribute(ATTR_USER);
@@ -66,7 +78,6 @@ public class IndexDocTests {
 		// ... setter methods ...
 	}
 	// end::repository-demo[]
-
 
 	@Test
 	public void expireRepositoryDemo() {
@@ -81,13 +92,13 @@ public class IndexDocTests {
 		private SessionRepository<S> repository; // <1>
 
 		public void demo() {
-			S toSave = repository.createSession(); // <2>
+			S toSave = this.repository.createSession(); // <2>
 			// ...
 			toSave.setMaxInactiveIntervalInSeconds(30); // <3>
 
-			repository.save(toSave); // <4>
+			this.repository.save(toSave); // <4>
 
-			S session = repository.getSession(toSave.getId()); // <5>
+			S session = this.repository.getSession(toSave.getId()); // <5>
 			// ...
 		}
 
@@ -96,19 +107,57 @@ public class IndexDocTests {
 	// end::expire-repository-demo[]
 
 	@Test
+	@SuppressWarnings("unused")
 	public void newRedisOperationsSessionRepository() {
 		// tag::new-redisoperationssessionrepository[]
-		JedisConnectionFactory factory = new JedisConnectionFactory();
-		SessionRepository<? extends ExpiringSession> repository =
-				new RedisOperationsSessionRepository(factory);
+		LettuceConnectionFactory factory = new LettuceConnectionFactory();
+		SessionRepository<? extends ExpiringSession> repository = new RedisOperationsSessionRepository(
+				factory);
 		// end::new-redisoperationssessionrepository[]
 	}
 
 	@Test
+	@SuppressWarnings("unused")
 	public void mapRepository() {
 		// tag::new-mapsessionrepository[]
 		SessionRepository<? extends ExpiringSession> repository = new MapSessionRepository();
 		// end::new-mapsessionrepository[]
+	}
+
+	@Test
+	@SuppressWarnings("unused")
+	public void newJdbcOperationsSessionRepository() {
+		// tag::new-jdbcoperationssessionrepository[]
+		JdbcTemplate jdbcTemplate = new JdbcTemplate();
+
+		// ... configure JdbcTemplate ...
+
+		PlatformTransactionManager transactionManager = new DataSourceTransactionManager();
+
+		// ... configure transactionManager ...
+
+		SessionRepository<? extends ExpiringSession> repository =
+				new JdbcOperationsSessionRepository(jdbcTemplate, transactionManager);
+		// end::new-jdbcoperationssessionrepository[]
+	}
+
+	@Test
+	@SuppressWarnings("unused")
+	public void newHazelcastSessionRepository() {
+		// tag::new-hazelcastsessionrepository[]
+
+		Config config = new Config();
+
+		// ... configure Hazelcast ...
+
+		HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance(config);
+
+		IMap<String, MapSession> sessions = hazelcastInstance
+				.getMap("spring:session:sessions");
+
+		HazelcastSessionRepository repository =
+				new HazelcastSessionRepository(sessions);
+		// end::new-hazelcastsessionrepository[]
 	}
 
 	@Test
@@ -120,12 +169,14 @@ public class IndexDocTests {
 
 		try {
 			context.getBean(SessionRepositoryFilter.class);
-		} finally {
+		}
+		finally {
 			context.close();
 		}
 	}
 
-	private static class User {
-		private User(String username) {}
+	private static final class User {
+		private User(String username) {
+		}
 	}
 }

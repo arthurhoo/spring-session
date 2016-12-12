@@ -5,13 +5,16 @@ apply plugin: 'eclipse-wtp'
 apply plugin: 'propdeps'
 apply plugin: 'propdeps-idea'
 apply plugin: 'propdeps-eclipse'
+apply plugin: 'com.github.ben-manes.versions'
+apply plugin: 'checkstyle'
+apply from: IDE_GRADLE
 
 group = 'org.springframework.session'
 
 sourceCompatibility = 1.5
 targetCompatibility = 1.5
 
-ext.springIoVersion = project.hasProperty('platformVersion') ? platformVersion : 'latest.integration'
+ext.springIoVersion = project.hasProperty('platformVersion') ? platformVersion : 'Brussels-BUILD-SNAPSHOT'
 
 ext.spockDependencies = [
 		dependencies.create("org.spockframework:spock-core:$spockVersion") {
@@ -73,6 +76,16 @@ task integrationTest(type: Test, dependsOn: jar) {
 	}
 }
 check.dependsOn integrationTest
+
+checkstyle {
+	configFile = rootProject.file('config/checkstyle/checkstyle.xml')
+	configProperties.configDir = configFile.parentFile
+	toolVersion = '6.16.1'
+}
+
+task checkstyle {
+	dependsOn project.tasks.findAll { task -> task.name.matches('checkstyle\\w+') }
+}
 
 eclipse {
 	classpath {

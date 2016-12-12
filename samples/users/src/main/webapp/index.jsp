@@ -1,9 +1,11 @@
 <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+<%@ taglib prefix="wj" uri="http://www.webjars.org/tags" %>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <title>Demonstrates Multi User Log In</title>
-    <link rel="stylesheet" href="assets/bootstrap.min.css">
+    <wj:locate path="bootstrap.min.css" relativeTo="META-INF/resources" var="bootstrapCssLocation"/>
+    <link rel="stylesheet" href="<c:url value="${bootstrapCssLocation}"/>">
     <style type="text/css">
         body {
             padding: 1em;
@@ -34,8 +36,8 @@
             <c:if test="${currentAccount != null or not empty accounts}">
                 <ul class="nav navbar-nav navbar-right">
                   <li class="dropdown">
-                    <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false"><c:out value="${username}"/> <span class="caret"></span></a>
-                    <ul class="dropdown-menu" role="menu">
+                    <a id="toggle" href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false"><c:out value="${username}"/> <span class="caret"></span></a>
+                    <ul id="user-menu" class="dropdown-menu" role="menu">
                       <c:if test="${currentAccount != null}">
                           <li><a id="logout" href="${currentAccount.logoutUrl}">Log Out</a></li>
                           <li><a id="addAccount" href="${addAccountUrl}">Add Account</a></li>
@@ -100,9 +102,11 @@
     <!-- Bootstrap core JavaScript
     ================================================== -->
     <!-- Placed at the end of the document so the pages load faster -->
-    <script src="./assets/js/jquery.min.js"></script>
-    <script src="./assets/js/bootstrap.min.js"></script>
+    <wj:locate path="jquery.min.js" relativeTo="META-INF/resources" var="jqueryLocation"/>
+    <script src="<c:url value="${jqueryLocation}"/>"></script>
+    <wj:locate path="bootstrap.min.js" relativeTo="META-INF/resources" var="bootstrapJsLocation"/>
+    <script src="<c:url value="${bootstrapJsLocation}"/>"></script>
     <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
-    <script src="./assets/js/ie10-viewport-bug-workaround.js"></script>
+    <script src="<c:url value="/assets/js/ie10-viewport-bug-workaround.js"/>"></script>
 </body>
 </html>

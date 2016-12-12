@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,18 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.springframework.session.web.http;
 
-import static org.fest.assertions.Assertions.assertThat;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
-import static org.mockito.Mockito.when;
+package org.springframework.session.web.http;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -33,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.TimeUnit;
 
 import javax.servlet.FilterChain;
 import javax.servlet.ServletContext;
@@ -44,11 +35,13 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpSessionContext;
 
+import org.assertj.core.data.Offset;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
+
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.mock.web.MockFilterChain;
@@ -56,10 +49,23 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.session.ExpiringSession;
+import org.springframework.session.MapSession;
 import org.springframework.session.MapSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyZeroInteractions;
 
 @RunWith(MockitoJUnitRunner.class)
 @SuppressWarnings("deprecation")
@@ -81,9 +87,10 @@ public class SessionRepositoryFilterTests {
 
 	@Before
 	public void setup() throws Exception {
-		sessions = new HashMap<String, ExpiringSession>();
-		sessionRepository = new MapSessionRepository(sessions);
-		filter = new SessionRepositoryFilter<ExpiringSession>(sessionRepository);
+		this.sessions = new HashMap<String, ExpiringSession>();
+		this.sessionRepository = new MapSessionRepository(this.sessions);
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(
+				this.sessionRepository);
 		setupRequest();
 	}
 
@@ -96,11 +103,12 @@ public class SessionRepositoryFilterTests {
 				long creationTime = wrappedRequest.getSession().getCreationTime();
 				long now = System.currentTimeMillis();
 				assertThat(now - creationTime).isGreaterThanOrEqualTo(0).isLessThan(5000);
-				request.setAttribute(CREATE_ATTR, creationTime);
+				SessionRepositoryFilterTests.this.request.setAttribute(CREATE_ATTR,
+						creationTime);
 			}
 		});
 
-		final long expectedCreationTime = (Long) request.getAttribute(CREATE_ATTR);
+		final long expectedCreationTime = (Long) this.request.getAttribute(CREATE_ATTR);
 		Thread.sleep(50L);
 		nextRequest();
 
@@ -115,18 +123,42 @@ public class SessionRepositoryFilterTests {
 	}
 
 	@Test
+	public void doFilterCreateSetsLastAccessedTime() throws Exception {
+		MapSession session = new MapSession();
+		session.setLastAccessedTime(0L);
+		this.sessionRepository = spy(this.sessionRepository);
+		given(this.sessionRepository.createSession()).willReturn(session);
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(
+				this.sessionRepository);
+
+		doFilter(new DoInFilter() {
+			@Override
+			public void doFilter(HttpServletRequest wrappedRequest) {
+				HttpSession session = wrappedRequest.getSession();
+				long now = System.currentTimeMillis();
+				long fiveSecondsAgo = now - TimeUnit.SECONDS.toMillis(5);
+				assertThat(session.getLastAccessedTime()).isLessThanOrEqualTo(now);
+				assertThat(session.getLastAccessedTime())
+						.isGreaterThanOrEqualTo(fiveSecondsAgo);
+			}
+		});
+	}
+
+	@Test
 	public void doFilterLastAccessedTime() throws Exception {
 		final String ACCESS_ATTR = "create";
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				long lastAccessed = wrappedRequest.getSession().getLastAccessedTime();
-				assertThat(lastAccessed).isEqualTo(wrappedRequest.getSession().getCreationTime());
-				request.setAttribute(ACCESS_ATTR, lastAccessed);
+				assertThat(lastAccessed).isCloseTo(
+						wrappedRequest.getSession().getCreationTime(), Offset.offset(5L));
+				SessionRepositoryFilterTests.this.request.setAttribute(ACCESS_ATTR,
+						lastAccessed);
 			}
 		});
 
-		Thread.sleep(1L);
+		Thread.sleep(50L);
 		nextRequest();
 
 		doFilter(new DoInFilter() {
@@ -134,7 +166,8 @@ public class SessionRepositoryFilterTests {
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				long lastAccessed = wrappedRequest.getSession().getLastAccessedTime();
 
-				assertThat(lastAccessed).isGreaterThan(wrappedRequest.getSession().getCreationTime());
+				assertThat(lastAccessed)
+						.isGreaterThan(wrappedRequest.getSession().getCreationTime());
 			}
 		});
 	}
@@ -148,11 +181,11 @@ public class SessionRepositoryFilterTests {
 				String id = wrappedRequest.getSession().getId();
 				assertThat(id).isNotNull();
 				assertThat(wrappedRequest.getSession().getId()).isEqualTo(id);
-				request.setAttribute(ID_ATTR, id);
+				SessionRepositoryFilterTests.this.request.setAttribute(ID_ATTR, id);
 			}
 		});
 
-		final String id = (String) request.getAttribute(ID_ATTR);
+		final String id = (String) this.request.getAttribute(ID_ATTR);
 		assertThat(getSessionCookie().getValue()).isEqualTo(id);
 		setSessionCookie(id);
 
@@ -171,11 +204,11 @@ public class SessionRepositoryFilterTests {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				String id = wrappedRequest.getSession().getId();
-				request.setAttribute(ID_ATTR, id);
+				SessionRepositoryFilterTests.this.request.setAttribute(ID_ATTR, id);
 			}
 		});
 
-		final String id = (String) request.getAttribute(ID_ATTR);
+		final String id = (String) this.request.getAttribute(ID_ATTR);
 		setupRequest();
 
 		doFilter(new DoInFilter() {
@@ -201,8 +234,9 @@ public class SessionRepositoryFilterTests {
 	@Test
 	public void doFilterServletContextExplicit() throws Exception {
 		final ServletContext expectedContext = new MockServletContext();
-		filter = new SessionRepositoryFilter<ExpiringSession>(sessionRepository);
-		filter.setServletContext(expectedContext);
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(
+				this.sessionRepository);
+		this.filter.setServletContext(expectedContext);
 
 		doFilter(new DoInFilter() {
 			@Override
@@ -219,7 +253,9 @@ public class SessionRepositoryFilterTests {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				int interval = wrappedRequest.getSession().getMaxInactiveInterval();
-				assertThat(interval).isEqualTo(1800); // 30 minute default (same as Tomcat)
+				// 30 minute default (same as
+				// Tomcat)
+				assertThat(interval).isEqualTo(1800);
 			}
 		});
 	}
@@ -231,7 +267,8 @@ public class SessionRepositoryFilterTests {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				wrappedRequest.getSession().setMaxInactiveInterval(interval);
-				assertThat(wrappedRequest.getSession().getMaxInactiveInterval()).isEqualTo(interval);
+				assertThat(wrappedRequest.getSession().getMaxInactiveInterval())
+						.isEqualTo(interval);
 			}
 		});
 
@@ -240,7 +277,8 @@ public class SessionRepositoryFilterTests {
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
-				assertThat(wrappedRequest.getSession().getMaxInactiveInterval()).isEqualTo(interval);
+				assertThat(wrappedRequest.getSession().getMaxInactiveInterval())
+						.isEqualTo(interval);
 			}
 		});
 	}
@@ -253,8 +291,11 @@ public class SessionRepositoryFilterTests {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				wrappedRequest.getSession().setAttribute(ATTR, VALUE);
-				assertThat(wrappedRequest.getSession().getAttribute(ATTR)).isEqualTo(VALUE);
-				assertThat(Collections.list(wrappedRequest.getSession().getAttributeNames())).containsOnly(ATTR);
+				assertThat(wrappedRequest.getSession().getAttribute(ATTR))
+						.isEqualTo(VALUE);
+				assertThat(
+						Collections.list(wrappedRequest.getSession().getAttributeNames()))
+								.containsOnly(ATTR);
 			}
 		});
 
@@ -263,8 +304,11 @@ public class SessionRepositoryFilterTests {
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
-				assertThat(wrappedRequest.getSession().getAttribute(ATTR)).isEqualTo(VALUE);
-				assertThat(Collections.list(wrappedRequest.getSession().getAttributeNames())).containsOnly(ATTR);
+				assertThat(wrappedRequest.getSession().getAttribute(ATTR))
+						.isEqualTo(VALUE);
+				assertThat(
+						Collections.list(wrappedRequest.getSession().getAttributeNames()))
+								.containsOnly(ATTR);
 			}
 		});
 
@@ -273,7 +317,8 @@ public class SessionRepositoryFilterTests {
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
-				assertThat(wrappedRequest.getSession().getAttribute(ATTR)).isEqualTo(VALUE);
+				assertThat(wrappedRequest.getSession().getAttribute(ATTR))
+						.isEqualTo(VALUE);
 
 				wrappedRequest.getSession().removeAttribute(ATTR);
 
@@ -300,7 +345,8 @@ public class SessionRepositoryFilterTests {
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				wrappedRequest.getSession().putValue(ATTR, VALUE);
 				assertThat(wrappedRequest.getSession().getValue(ATTR)).isEqualTo(VALUE);
-				assertThat(Arrays.asList(wrappedRequest.getSession().getValueNames())).containsOnly(ATTR);
+				assertThat(Arrays.asList(wrappedRequest.getSession().getValueNames()))
+						.containsOnly(ATTR);
 			}
 		});
 
@@ -310,7 +356,8 @@ public class SessionRepositoryFilterTests {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				assertThat(wrappedRequest.getSession().getValue(ATTR)).isEqualTo(VALUE);
-				assertThat(Arrays.asList(wrappedRequest.getSession().getValueNames())).containsOnly(ATTR);
+				assertThat(Arrays.asList(wrappedRequest.getSession().getValueNames()))
+						.containsOnly(ATTR);
 			}
 		});
 
@@ -358,7 +405,7 @@ public class SessionRepositoryFilterTests {
 		});
 
 		nextRequest();
-		response.reset();
+		this.response.reset();
 
 		doFilter(new DoInFilter() {
 			@Override
@@ -367,29 +414,30 @@ public class SessionRepositoryFilterTests {
 			}
 		});
 
-		assertThat(response.getCookie("SESSION")).isNull();
+		assertThat(this.response.getCookie("SESSION")).isNull();
 	}
 
 	@Test
 	public void doFilterSetsCookieIfChanged() throws Exception {
-		sessionRepository = new MapSessionRepository() {
+		this.sessionRepository = new MapSessionRepository() {
 			@Override
 			public ExpiringSession getSession(String id) {
 				return createSession();
 			}
 		};
-		filter = new SessionRepositoryFilter<ExpiringSession>(sessionRepository);
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(
+				this.sessionRepository);
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				wrappedRequest.getSession();
 			}
 		});
-		assertThat(response.getCookie("SESSION")).isNotNull();
+		assertThat(this.response.getCookie("SESSION")).isNotNull();
 
 		nextRequest();
 
-		response.reset();
+		this.response.reset();
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
@@ -397,7 +445,7 @@ public class SessionRepositoryFilterTests {
 			}
 		});
 
-		assertThat(response.getCookie("SESSION")).isNotNull();
+		assertThat(this.response.getCookie("SESSION")).isNotNull();
 	}
 
 	@Test
@@ -446,7 +494,7 @@ public class SessionRepositoryFilterTests {
 		});
 
 		nextRequest();
-		request.setRequestedSessionIdValid(false); // ensure we are using wrapped request
+		this.request.setRequestedSessionIdValid(false);
 
 		doFilter(new DoInFilter() {
 			@Override
@@ -479,7 +527,8 @@ public class SessionRepositoryFilterTests {
 				HttpSession originalSession = wrappedRequest.getSession();
 				assertThat(originalSession.getId()).isEqualTo(originalSessionId);
 
-				String changeSessionId = ReflectionTestUtils.invokeMethod(wrappedRequest, "changeSessionId");
+				String changeSessionId = ReflectionTestUtils.invokeMethod(wrappedRequest,
+						"changeSessionId");
 				assertThat(changeSessionId).isNotEqualTo(originalSessionId);
 				// gh-227
 				assertThat(originalSession.getId()).isEqualTo(changeSessionId);
@@ -489,7 +538,7 @@ public class SessionRepositoryFilterTests {
 		// the old session was removed
 		final String changedSessionId = getSessionCookie().getValue();
 		assertThat(originalSessionId).isNotEqualTo(changedSessionId);
-		assertThat(sessionRepository.getSession(originalSessionId)).isNull();
+		assertThat(this.sessionRepository.getSession(originalSessionId)).isNull();
 
 		nextRequest();
 
@@ -497,7 +546,8 @@ public class SessionRepositoryFilterTests {
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
-				assertThat(wrappedRequest.getSession().getAttribute(ATTR)).isEqualTo(VALUE);
+				assertThat(wrappedRequest.getSession().getAttribute(ATTR))
+						.isEqualTo(VALUE);
 			}
 		});
 	}
@@ -511,7 +561,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					ReflectionTestUtils.invokeMethod(wrappedRequest, "changeSessionId");
 					fail("Exected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -520,7 +572,7 @@ public class SessionRepositoryFilterTests {
 	@Test
 	public void doFilterIsRequestedValidSessionFalseInvalidId() throws Exception {
 		setSessionCookie("invalid");
-		request.setRequestedSessionIdValid(true); // ensure we are using wrapped request
+		this.request.setRequestedSessionIdValid(true);
 
 		doFilter(new DoInFilter() {
 			@Override
@@ -532,7 +584,7 @@ public class SessionRepositoryFilterTests {
 
 	@Test
 	public void doFilterIsRequestedValidSessionFalse() throws Exception {
-		request.setRequestedSessionIdValid(true); // ensure we are using wrapped request
+		this.request.setRequestedSessionIdValid(true);
 
 		doFilter(new DoInFilter() {
 			@Override
@@ -585,7 +637,7 @@ public class SessionRepositoryFilterTests {
 
 	@Test
 	public void doFilterCookieSecuritySettings() throws Exception {
-		request.setSecure(true);
+		this.request.setSecure(true);
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
@@ -594,8 +646,10 @@ public class SessionRepositoryFilterTests {
 		});
 
 		Cookie session = getSessionCookie();
-		assertThat(session.isHttpOnly()).describedAs("Session Cookie should be HttpOnly").isTrue();
-		assertThat(session.getSecure()).describedAs("Session Cookie should be marked as Secure").isTrue();
+		assertThat(session.isHttpOnly()).describedAs("Session Cookie should be HttpOnly")
+				.isTrue();
+		assertThat(session.getSecure())
+				.describedAs("Session Cookie should be marked as Secure").isTrue();
 	}
 
 	@Test
@@ -603,7 +657,8 @@ public class SessionRepositoryFilterTests {
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
-				HttpSessionContext sessionContext = wrappedRequest.getSession().getSessionContext();
+				HttpSessionContext sessionContext = wrappedRequest.getSession()
+						.getSessionContext();
 				assertThat(sessionContext).isNotNull();
 				assertThat(sessionContext.getSession("a")).isNull();
 				assertThat(sessionContext.getIds()).isNotNull();
@@ -612,12 +667,12 @@ public class SessionRepositoryFilterTests {
 				try {
 					sessionContext.getIds().nextElement();
 					fail("Expected Exception");
-				} catch(NoSuchElementException success) {}
+				}
+				catch (NoSuchElementException success) {
+				}
 			}
 		});
 	}
-
-
 
 	// --- saving
 
@@ -643,8 +698,10 @@ public class SessionRepositoryFilterTests {
 		doFilter(new DoInFilter() {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
-				assertThat(wrappedRequest.getSession().getAttribute(ATTR_NAME)).isEqualTo(ATTR_VALUE);
-				assertThat(wrappedRequest.getSession().getAttribute(ATTR_NAME2)).isEqualTo(ATTR_VALUE2);
+				assertThat(wrappedRequest.getSession().getAttribute(ATTR_NAME))
+						.isEqualTo(ATTR_VALUE);
+				assertThat(wrappedRequest.getSession().getAttribute(ATTR_NAME2))
+						.isEqualTo(ATTR_VALUE2);
 			}
 		});
 	}
@@ -661,7 +718,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.invalidate();
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -676,7 +735,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.getCreationTime();
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -691,7 +752,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.getAttribute("attr");
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -706,7 +769,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.getValue("attr");
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -721,7 +786,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.getAttributeNames();
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -736,7 +803,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.getValueNames();
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -751,7 +820,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.setAttribute("a", "b");
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -766,7 +837,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.putValue("a", "b");
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -781,7 +854,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.removeAttribute("name");
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -796,7 +871,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.removeValue("name");
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -811,7 +888,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.isNew();
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -826,7 +905,9 @@ public class SessionRepositoryFilterTests {
 				try {
 					session.getLastAccessedTime();
 					fail("Expected Exception");
-				} catch(IllegalStateException success) {}
+				}
+				catch (IllegalStateException success) {
+				}
 			}
 		});
 	}
@@ -911,7 +992,8 @@ public class SessionRepositoryFilterTests {
 			@Override
 			public void doFilter(HttpServletRequest wrappedRequest) {
 				assertThat(wrappedRequest.getSession().getAttribute(ATTR_NAME)).isNull();
-				assertThat(wrappedRequest.getSession().getAttribute(ATTR_NAME2)).isEqualTo(ATTR_VALUE2);
+				assertThat(wrappedRequest.getSession().getAttribute(ATTR_NAME2))
+						.isEqualTo(ATTR_VALUE2);
 			}
 		});
 	}
@@ -963,10 +1045,12 @@ public class SessionRepositoryFilterTests {
 	public void doFilterSendError() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
 				wrappedResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -975,10 +1059,13 @@ public class SessionRepositoryFilterTests {
 	public void doFilterSendErrorAndMessage() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
-				wrappedResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Error");
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				wrappedResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+						"Error");
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -987,10 +1074,12 @@ public class SessionRepositoryFilterTests {
 	public void doFilterSendRedirect() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
 				wrappedResponse.sendRedirect("/");
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -999,10 +1088,12 @@ public class SessionRepositoryFilterTests {
 	public void doFilterFlushBuffer() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
 				wrappedResponse.flushBuffer();
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -1011,10 +1102,12 @@ public class SessionRepositoryFilterTests {
 	public void doFilterOutputFlush() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
 				wrappedResponse.getOutputStream().flush();
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -1023,10 +1116,12 @@ public class SessionRepositoryFilterTests {
 	public void doFilterOutputClose() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
 				wrappedResponse.getOutputStream().close();
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -1035,10 +1130,12 @@ public class SessionRepositoryFilterTests {
 	public void doFilterWriterFlush() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
 				wrappedResponse.getWriter().flush();
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -1047,10 +1144,12 @@ public class SessionRepositoryFilterTests {
 	public void doFilterWriterClose() throws Exception {
 		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String id = wrappedRequest.getSession().getId();
 				wrappedResponse.getWriter().close();
-				assertThat(sessionRepository.getSession(id)).isNotNull();
+				assertThat(SessionRepositoryFilterTests.this.sessionRepository
+						.getSession(id)).isNotNull();
 			}
 		});
 	}
@@ -1059,13 +1158,15 @@ public class SessionRepositoryFilterTests {
 
 	@Test
 	public void doFilterAdapterGetRequestedSessionId() throws Exception {
-		filter.setHttpSessionStrategy(strategy);
+		this.filter.setHttpSessionStrategy(this.strategy);
 		final String expectedId = "MultiHttpSessionStrategyAdapter-requested-id";
-		when(strategy.getRequestedSessionId(any(HttpServletRequest.class))).thenReturn(expectedId);
+		given(this.strategy.getRequestedSessionId(any(HttpServletRequest.class)))
+				.willReturn(expectedId);
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				String actualId = wrappedRequest.getRequestedSessionId();
 				assertThat(actualId).isEqualTo(expectedId);
 			}
@@ -1074,81 +1175,95 @@ public class SessionRepositoryFilterTests {
 
 	@Test
 	public void doFilterAdapterOnNewSession() throws Exception {
-		filter.setHttpSessionStrategy(strategy);
+		this.filter.setHttpSessionStrategy(this.strategy);
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				wrappedRequest.getSession();
 			}
 		});
 
-		HttpServletRequest request = (HttpServletRequest) chain.getRequest();
-		Session session = sessionRepository.getSession(request.getSession().getId());
-		verify(strategy).onNewSession(eq(session), any(HttpServletRequest.class),any(HttpServletResponse.class));
+		HttpServletRequest request = (HttpServletRequest) this.chain.getRequest();
+		Session session = this.sessionRepository.getSession(request.getSession().getId());
+		verify(this.strategy).onNewSession(eq(session), any(HttpServletRequest.class),
+				any(HttpServletResponse.class));
 	}
 
 	@Test
 	public void doFilterAdapterOnInvalidate() throws Exception {
-		filter.setHttpSessionStrategy(strategy);
+		this.filter.setHttpSessionStrategy(this.strategy);
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				wrappedRequest.getSession().getId();
 			}
 		});
 
-		HttpServletRequest request = (HttpServletRequest) chain.getRequest();
+		HttpServletRequest request = (HttpServletRequest) this.chain.getRequest();
 		String id = request.getSession().getId();
-		when(strategy.getRequestedSessionId(any(HttpServletRequest.class))).thenReturn(id);
+		given(this.strategy.getRequestedSessionId(any(HttpServletRequest.class)))
+				.willReturn(id);
 		setupRequest();
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				wrappedRequest.getSession().invalidate();
 			}
 		});
 
-		verify(strategy).onInvalidateSession(any(HttpServletRequest.class),any(HttpServletResponse.class));
+		verify(this.strategy).onInvalidateSession(any(HttpServletRequest.class),
+				any(HttpServletResponse.class));
 	}
 
 	// gh-188
 	@Test
-	public void doFilterRequestSessionNoRequestSessionDoesNotInvalidate() throws Exception {
-		filter.setHttpSessionStrategy(strategy);
+	public void doFilterRequestSessionNoRequestSessionDoesNotInvalidate()
+			throws Exception {
+		this.filter.setHttpSessionStrategy(this.strategy);
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				wrappedRequest.getSession().getId();
 			}
 		});
 
-		HttpServletRequest request = (HttpServletRequest) chain.getRequest();
+		HttpServletRequest request = (HttpServletRequest) this.chain.getRequest();
 		String id = request.getSession().getId();
-		when(strategy.getRequestedSessionId(any(HttpServletRequest.class))).thenReturn(id);
+		given(this.strategy.getRequestedSessionId(any(HttpServletRequest.class)))
+				.willReturn(id);
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 			}
 		});
 
-		verify(strategy,never()).onInvalidateSession(any(HttpServletRequest.class),any(HttpServletResponse.class));
+		verify(this.strategy, never()).onInvalidateSession(any(HttpServletRequest.class),
+				any(HttpServletResponse.class));
 	}
 
 	@Test
 	@SuppressWarnings("unchecked")
-	public void doFilterRequestSessionNoRequestSessionNoSessionRepositoryInteractions() throws Exception {
-		SessionRepository<ExpiringSession> sessionRepository = spy(new MapSessionRepository());
+	public void doFilterRequestSessionNoRequestSessionNoSessionRepositoryInteractions()
+			throws Exception {
+		SessionRepository<ExpiringSession> sessionRepository = spy(
+				new MapSessionRepository());
 
-		filter = new SessionRepositoryFilter<ExpiringSession>(sessionRepository);
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(sessionRepository);
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 				wrappedRequest.getSession().getId();
 			}
 		});
@@ -1156,9 +1271,47 @@ public class SessionRepositoryFilterTests {
 		reset(sessionRepository);
 		setupRequest();
 
-		doFilter(new DoInFilter(){
+		doFilter(new DoInFilter() {
 			@Override
-			public void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws IOException {
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
+			}
+		});
+
+		verifyZeroInteractions(sessionRepository);
+	}
+
+	@Test
+	public void doFilterLazySessionCreation() throws Exception {
+		SessionRepository<ExpiringSession> sessionRepository = spy(
+				new MapSessionRepository());
+
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(sessionRepository);
+
+		doFilter(new DoInFilter() {
+			@Override
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
+			}
+		});
+
+		verifyZeroInteractions(sessionRepository);
+	}
+
+	@Test
+	public void doFilterLazySessionUpdates() throws Exception {
+		ExpiringSession session = this.sessionRepository.createSession();
+		this.sessionRepository.save(session);
+		SessionRepository<ExpiringSession> sessionRepository = spy(
+				this.sessionRepository);
+		setSessionCookie(session.getId());
+
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(sessionRepository);
+
+		doFilter(new DoInFilter() {
+			@Override
+			public void doFilter(HttpServletRequest wrappedRequest,
+					HttpServletResponse wrappedResponse) throws IOException {
 			}
 		});
 
@@ -1169,24 +1322,65 @@ public class SessionRepositoryFilterTests {
 
 	@Test
 	public void order() {
-		assertThat(AnnotationAwareOrderComparator.INSTANCE.compare(filter, new SessionRepositoryFilterDefaultOrder()));
+		assertThat(AnnotationAwareOrderComparator.INSTANCE.compare(this.filter,
+				new SessionRepositoryFilterDefaultOrder()));
 	}
 
 	// We want the filter to work without any dependencies on Spring
 	@Test(expected = ClassCastException.class)
 	@SuppressWarnings("unused")
 	public void doesNotImplementOrdered() {
-		Ordered o = (Ordered) filter;
+		Ordered o = (Ordered) this.filter;
 	}
 
 	@Test(expected = IllegalArgumentException.class)
 	public void setHttpSessionStrategyNull() {
-		filter.setHttpSessionStrategy((HttpSessionStrategy) null);
+		this.filter.setHttpSessionStrategy((HttpSessionStrategy) null);
 	}
 
 	@Test(expected = IllegalArgumentException.class)
 	public void setMultiHttpSessionStrategyNull() {
-		filter.setHttpSessionStrategy((MultiHttpSessionStrategy) null);
+		this.filter.setHttpSessionStrategy((MultiHttpSessionStrategy) null);
+	}
+
+	@Test
+	public void getSessionFalseWithInvalidSessionIdShouldOnlyAskRepositoryOnce()
+			throws ServletException, IOException {
+		this.sessionRepository = spy(this.sessionRepository);
+		this.filter = new SessionRepositoryFilter<ExpiringSession>(
+				this.sessionRepository);
+
+		final String nonExistantSessionId = "nonExistantSessionId";
+		setSessionCookie(nonExistantSessionId);
+
+		doFilter(new DoInFilter() {
+			@Override
+			public void doFilter(HttpServletRequest wrappedRequest) {
+				// Before first invocation
+				assertThat(SessionRepositoryFilterTests.this.request
+						.getAttribute(SessionRepositoryFilter.INVALID_SESSION_ID_ATTR))
+								.isNull();
+
+				// First call should go all the way through to the sessioRepository (it
+				// will not find the session)
+				HttpSession session = wrappedRequest.getSession(false);
+				verify(SessionRepositoryFilterTests.this.sessionRepository, times(1))
+						.getSession(nonExistantSessionId);
+				assertThat(session).isNull();
+				assertThat(SessionRepositoryFilterTests.this.request
+						.getAttribute(SessionRepositoryFilter.INVALID_SESSION_ID_ATTR))
+								.isNotNull();
+
+				// Second call should not reach the sessionRepository
+				session = wrappedRequest.getSession(false);
+				verify(SessionRepositoryFilterTests.this.sessionRepository, times(1))
+						.getSession(nonExistantSessionId); // still only called once
+				assertThat(session).isNull();
+				assertThat(SessionRepositoryFilterTests.this.request
+						.getAttribute(SessionRepositoryFilter.INVALID_SESSION_ID_ATTR))
+								.isNotNull();
+			}
+		});
 	}
 
 	// --- helper methods
@@ -1196,66 +1390,83 @@ public class SessionRepositoryFilterTests {
 		assertThat(cookie).isNotNull();
 		assertThat(cookie.getMaxAge()).isEqualTo(-1);
 		assertThat(cookie.getValue()).isNotEqualTo("INVALID");
-		assertThat(cookie.isHttpOnly()).describedAs("Cookie is expected to be HTTP Only").isTrue();
-		assertThat(cookie.getSecure()).describedAs("Cookie secured is expected to be " + request.isSecure()).isEqualTo(request.isSecure());
-		assertThat(request.getSession(false)).describedAs("The original HttpServletRequest HttpSession should be null").isNull();
+		assertThat(cookie.isHttpOnly()).describedAs("Cookie is expected to be HTTP Only")
+				.isTrue();
+		assertThat(cookie.getSecure())
+				.describedAs(
+						"Cookie secured is expected to be " + this.request.isSecure())
+				.isEqualTo(this.request.isSecure());
+		assertThat(this.request.getSession(false))
+				.describedAs("The original HttpServletRequest HttpSession should be null")
+				.isNull();
 	}
 
 	private void assertNoSession() {
 		Cookie cookie = getSessionCookie();
 		assertThat(cookie).isNull();
-		assertThat(request.getSession(false)).describedAs("The original HttpServletRequest HttpSession should be null").isNull();
+		assertThat(this.request.getSession(false))
+				.describedAs("The original HttpServletRequest HttpSession should be null")
+				.isNull();
 	}
 
 	private Cookie getSessionCookie() {
-		return response.getCookie("SESSION");
+		return this.response.getCookie("SESSION");
 	}
 
 	private void setSessionCookie(String sessionId) {
-		request.setCookies(new Cookie[]{new Cookie("SESSION", sessionId)});
+		this.request.setCookies(new Cookie[] { new Cookie("SESSION", sessionId) });
 	}
 
 	private void setupRequest() {
-		request = new MockHttpServletRequest();
-		response = new MockHttpServletResponse();
-		chain = new MockFilterChain();
+		this.request = new MockHttpServletRequest();
+		this.response = new MockHttpServletResponse();
+		this.chain = new MockFilterChain();
 	}
 
 	private void nextRequest() throws Exception {
-		Map<String,Cookie> nameToCookie = new HashMap<String,Cookie>();
-		if (request.getCookies() != null) {
-			for(Cookie cookie : request.getCookies()) {
+		Map<String, Cookie> nameToCookie = new HashMap<String, Cookie>();
+		if (this.request.getCookies() != null) {
+			for (Cookie cookie : this.request.getCookies()) {
 				nameToCookie.put(cookie.getName(), cookie);
 			}
 		}
-		if (response.getCookies() != null) {
-			for(Cookie cookie : response.getCookies()) {
+		if (this.response.getCookies() != null) {
+			for (Cookie cookie : this.response.getCookies()) {
 				nameToCookie.put(cookie.getName(), cookie);
 			}
 		}
-		Cookie[] nextRequestCookies = new ArrayList<Cookie>(nameToCookie.values()).toArray(new Cookie[0]);
+		Cookie[] nextRequestCookies = new ArrayList<Cookie>(nameToCookie.values())
+				.toArray(new Cookie[0]);
 
 		setupRequest();
 
-		request.setCookies(nextRequestCookies);
+		this.request.setCookies(nextRequestCookies);
 	}
 
 	@SuppressWarnings("serial")
-	private void doFilter(final DoInFilter doInFilter) throws ServletException, IOException {
-		chain = new MockFilterChain(new HttpServlet() {}, new OncePerRequestFilter() {
+	private void doFilter(final DoInFilter doInFilter)
+			throws ServletException, IOException {
+		this.chain = new MockFilterChain(new HttpServlet() {
+		}, new OncePerRequestFilter() {
 			@Override
-			protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+			protected void doFilterInternal(HttpServletRequest request,
+					HttpServletResponse response, FilterChain filterChain)
+							throws ServletException, IOException {
 				doInFilter.doFilter(request, response);
 			}
 		});
-		filter.doFilter(request, response, chain);
+		this.filter.doFilter(this.request, this.response, this.chain);
 	}
 
 	abstract class DoInFilter {
-		void doFilter(HttpServletRequest wrappedRequest, HttpServletResponse wrappedResponse) throws ServletException, IOException {
+		void doFilter(HttpServletRequest wrappedRequest,
+				HttpServletResponse wrappedResponse)
+						throws ServletException, IOException {
 			doFilter(wrappedRequest);
 		}
-		void doFilter(HttpServletRequest wrappedRequest) {}
+
+		void doFilter(HttpServletRequest wrappedRequest) {
+		}
 	}
 
 	static class SessionRepositoryFilterDefaultOrder implements Ordered {

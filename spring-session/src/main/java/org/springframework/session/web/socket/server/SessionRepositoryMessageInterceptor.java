@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.session.web.socket.server;
 
 import java.util.EnumSet;
@@ -39,34 +40,30 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 /**
  * <p>
- * Acts as a {@link ChannelInterceptor} and a {@link HandshakeInterceptor} to
- * ensure the {@link ExpiringSession#getLastAccessedTime()} is up to date.
+ * Acts as a {@link ChannelInterceptor} and a {@link HandshakeInterceptor} to ensure the
+ * {@link ExpiringSession#getLastAccessedTime()} is up to date.
  * </p>
  * <ul>
- * <li>
- * Associates the {@link Session#getId()} with the WebSocket Session
- * attributes when the handshake is performed. This is later used when
- * intercepting messages to ensure the
- * {@link ExpiringSession#getLastAccessedTime()} is updated.
- * </li>
- * <li>
- * Intercepts {@link Message}'s that are have {@link SimpMessageType} that
- * corresponds to {@link #setMatchingMessageTypes(Set)} and updates the last
- * accessed time of the {@link Session}. If the {@link Session} is expired, the
- * {@link Message} is prevented from proceeding.</li>
+ * <li>Associates the {@link Session#getId()} with the WebSocket Session attributes when
+ * the handshake is performed. This is later used when intercepting messages to ensure the
+ * {@link ExpiringSession#getLastAccessedTime()} is updated.</li>
+ * <li>Intercepts {@link Message}'s that are have {@link SimpMessageType} that corresponds
+ * to {@link #setMatchingMessageTypes(Set)} and updates the last accessed time of the
+ * {@link Session}. If the {@link Session} is expired, the {@link Message} is prevented
+ * from proceeding.</li>
  * </ul>
  *
  * <p>
- * In order to work {@link SessionRepositoryMessageInterceptor} must be
- * registered as a {@link ChannelInterceptor} and a {@link HandshakeInterceptor}
- * .
+ * In order to work {@link SessionRepositoryMessageInterceptor} must be registered as a
+ * {@link ChannelInterceptor} and a {@link HandshakeInterceptor} .
  * </p>
  *
+ * @param <S> the {@link ExpiringSession} type
  * @author Rob Winch
  * @since 1.0
  */
-public final class SessionRepositoryMessageInterceptor<S extends ExpiringSession> extends ChannelInterceptorAdapter
-	implements HandshakeInterceptor {
+public final class SessionRepositoryMessageInterceptor<S extends ExpiringSession>
+		extends ChannelInterceptorAdapter implements HandshakeInterceptor {
 
 	private static final String SPRING_SESSION_ID_ATTR_NAME = "SPRING.SESSION.ID";
 
@@ -75,22 +72,23 @@ public final class SessionRepositoryMessageInterceptor<S extends ExpiringSession
 	private Set<SimpMessageType> matchingMessageTypes;
 
 	/**
-	 * Creates a new instance
+	 * Creates a new instance.
 	 *
 	 * @param sessionRepository the {@link SessionRepository} to use. Cannot be null.
 	 */
 	public SessionRepositoryMessageInterceptor(SessionRepository<S> sessionRepository) {
 		Assert.notNull(sessionRepository, "sessionRepository cannot be null");
 		this.sessionRepository = sessionRepository;
-		this.matchingMessageTypes = EnumSet.of(SimpMessageType.CONNECT, SimpMessageType.MESSAGE, SimpMessageType.SUBSCRIBE, SimpMessageType.UNSUBSCRIBE);
+		this.matchingMessageTypes = EnumSet.of(SimpMessageType.CONNECT,
+				SimpMessageType.MESSAGE, SimpMessageType.SUBSCRIBE,
+				SimpMessageType.UNSUBSCRIBE);
 	}
 
 	/**
 	 * <p>
-	 * Sets the {@link SimpMessageType} to match on. If the {@link Message}
-	 * matches, then {@link #preSend(Message, MessageChannel)} ensures the
-	 * {@link Session} is not expired and updates the
-	 * {@link ExpiringSession#getLastAccessedTime()}
+	 * Sets the {@link SimpMessageType} to match on. If the {@link Message} matches, then
+	 * {@link #preSend(Message, MessageChannel)} ensures the {@link Session} is not
+	 * expired and updates the {@link ExpiringSession#getLastAccessedTime()}
 	 * </p>
 	 *
 	 * <p>
@@ -98,41 +96,43 @@ public final class SessionRepositoryMessageInterceptor<S extends ExpiringSession
 	 * SimpMessageType.SUBSCRIBE, SimpMessageType.UNSUBSCRIBE.
 	 * </p>
 	 *
-	 * @param matchingMessageTypes
-	 *            the {@link SimpMessageType} to match on in
-	 *            {@link #preSend(Message, MessageChannel)}, else the
-	 *            {@link Message} is continued without accessing or updating the
-	 *            {@link Session}
+	 * @param matchingMessageTypes the {@link SimpMessageType} to match on in
+	 * {@link #preSend(Message, MessageChannel)}, else the {@link Message} is continued
+	 * without accessing or updating the {@link Session}
 	 */
 	public void setMatchingMessageTypes(Set<SimpMessageType> matchingMessageTypes) {
-		Assert.notEmpty(matchingMessageTypes,"matchingMessageTypes cannot be null or empty");
+		Assert.notEmpty(matchingMessageTypes,
+				"matchingMessageTypes cannot be null or empty");
 		this.matchingMessageTypes = matchingMessageTypes;
 	}
 
 	@Override
 	public Message<?> preSend(Message<?> message, MessageChannel channel) {
-		if(message == null) {
+		if (message == null) {
 			return message;
 		}
-		SimpMessageType messageType = SimpMessageHeaderAccessor.getMessageType(message.getHeaders());
-		if(!this.matchingMessageTypes.contains(messageType)) {
+		SimpMessageType messageType = SimpMessageHeaderAccessor
+				.getMessageType(message.getHeaders());
+		if (!this.matchingMessageTypes.contains(messageType)) {
 			return super.preSend(message, channel);
 		}
-		Map<String, Object> sessionHeaders = SimpMessageHeaderAccessor.getSessionAttributes(message.getHeaders());
-		String sessionId = sessionHeaders == null ? null : (String) sessionHeaders.get(SPRING_SESSION_ID_ATTR_NAME);
+		Map<String, Object> sessionHeaders = SimpMessageHeaderAccessor
+				.getSessionAttributes(message.getHeaders());
+		String sessionId = sessionHeaders == null ? null
+				: (String) sessionHeaders.get(SPRING_SESSION_ID_ATTR_NAME);
 		if (sessionId != null) {
-			S session = sessionRepository.getSession(sessionId);
+			S session = this.sessionRepository.getSession(sessionId);
 			if (session != null) {
 				// update the last accessed time
-				sessionRepository.save(session);
+				session.setLastAccessedTime(System.currentTimeMillis());
+				this.sessionRepository.save(session);
 			}
 		}
 		return super.preSend(message, channel);
 	}
 
-	public boolean beforeHandshake(ServerHttpRequest request,
-			ServerHttpResponse response, WebSocketHandler wsHandler,
-			Map<String, Object> attributes) throws Exception {
+	public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
+			WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
 		if (request instanceof ServletServerHttpRequest) {
 			ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) request;
 			HttpSession session = servletRequest.getServletRequest().getSession(false);
@@ -143,9 +143,8 @@ public final class SessionRepositoryMessageInterceptor<S extends ExpiringSession
 		return true;
 	}
 
-	public void afterHandshake(ServerHttpRequest request,
-			ServerHttpResponse response, WebSocketHandler wsHandler,
-			Exception exception) {
+	public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
+			WebSocketHandler wsHandler, Exception exception) {
 	}
 
 	public static String getSessionId(Map<String, Object> attributes) {

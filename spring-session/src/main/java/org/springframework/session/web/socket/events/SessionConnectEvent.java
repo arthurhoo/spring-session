@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.session.web.socket.events;
 
 import org.springframework.context.ApplicationEvent;
@@ -21,9 +22,8 @@ import org.springframework.session.web.socket.handler.WebSocketRegistryListener;
 import org.springframework.web.socket.WebSocketSession;
 
 /**
- * Similar to Spring
- * {@link org.springframework.web.socket.messaging.SessionConnectEvent} except
- * that it provides access to the {@link WebSocketSession} to allow mapping the
+ * Similar to Spring {@link org.springframework.web.socket.messaging.SessionConnectEvent}
+ * except that it provides access to the {@link WebSocketSession} to allow mapping the
  * Spring Session to the {@link WebSocketSession}.
  *
  * @author Rob Winch
@@ -42,6 +42,6 @@ public class SessionConnectEvent extends ApplicationEvent {
 	}
 
 	public WebSocketSession getWebSocketSession() {
-		return webSocketSession;
+		return this.webSocketSession;
 	}
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package sample;
 
 import java.io.IOException;
@@ -43,11 +44,11 @@ public class UserAccountsFilter implements Filter {
 		HttpServletRequest httpRequest = (HttpServletRequest) request;
 
 		// tag::HttpSessionManager[]
-		HttpSessionManager sessionManager =
-				(HttpSessionManager) httpRequest.getAttribute(HttpSessionManager.class.getName());
+		HttpSessionManager sessionManager = (HttpSessionManager) httpRequest
+				.getAttribute(HttpSessionManager.class.getName());
 		// end::HttpSessionManager[]
-		SessionRepository<Session> repo =
-				(SessionRepository<Session>) httpRequest.getAttribute(SessionRepository.class.getName());
+		SessionRepository<Session> repo = (SessionRepository<Session>) httpRequest
+				.getAttribute(SessionRepository.class.getName());
 
 		String currentSessionAlias = sessionManager.getCurrentSessionAlias(httpRequest);
 		Map<String, String> sessionIds = sessionManager.getSessionIds(httpRequest);
@@ -56,17 +57,17 @@ public class UserAccountsFilter implements Filter {
 		String contextPath = httpRequest.getContextPath();
 		List<Account> accounts = new ArrayList<Account>();
 		Account currentAccount = null;
-		for(Map.Entry<String, String> entry : sessionIds.entrySet()) {
+		for (Map.Entry<String, String> entry : sessionIds.entrySet()) {
 			String alias = entry.getKey();
 			String sessionId = entry.getValue();
 
 			Session session = repo.getSession(sessionId);
-			if(session == null) {
+			if (session == null) {
 				continue;
 			}
 
 			String username = session.getAttribute("username");
-			if(username == null) {
+			if (username == null) {
 				unauthenticatedAlias = alias;
 				continue;
 			}
@@ -74,16 +75,18 @@ public class UserAccountsFilter implements Filter {
 			String logoutUrl = sessionManager.encodeURL("./logout", alias);
 			String switchAccountUrl = sessionManager.encodeURL("./", alias);
 			Account account = new Account(username, logoutUrl, switchAccountUrl);
-			if(currentSessionAlias.equals(alias)) {
+			if (currentSessionAlias.equals(alias)) {
 				currentAccount = account;
-			} else {
+			}
+			else {
 				accounts.add(account);
 			}
 		}
 
 		// tag::addAccountUrl[]
 		String addAlias = unauthenticatedAlias == null ? // <1>
-				sessionManager.getNewSessionAlias(httpRequest) : // <2>
+				sessionManager.getNewSessionAlias(httpRequest)
+				: // <2>
 				unauthenticatedAlias; // <3>
 		String addAccountUrl = sessionManager.encodeURL(contextPath, addAlias); // <4>
 		// end::addAccountUrl[]

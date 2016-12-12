@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.session.web.socket.config.annotation;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,8 +29,11 @@ import org.springframework.session.web.socket.server.SessionRepositoryMessageInt
 import org.springframework.web.socket.config.annotation.AbstractWebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.StompWebSocketEndpointRegistration;
+import org.springframework.web.socket.config.annotation.WebMvcStompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import org.springframework.web.socket.messaging.StompSubProtocolErrorHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
+import org.springframework.web.util.UrlPathHelper;
 
 /**
  * Eases configuration of Web Socket and Spring Session integration.
@@ -38,13 +42,14 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
  * The configuration:
  * </p>
  * <ul>
- * <li>Ensures the the {@link Session} is kept alive on incoming web socket
- * messages.</li>
- * <li>Ensures that Web Socket Sessions are destroyed when a {@link Session} is
- * terminated</li>
+ * <li>Ensures the {@link Session} is kept alive on incoming web socket messages.</li>
+ * <li>Ensures that Web Socket Sessions are destroyed when a {@link Session} is terminated
+ * </li>
  * </ul>
  *
- * <p>Example usage</p>
+ * <p>
+ * Example usage
+ * </p>
  *
  * <code>
  * {@literal @Configuration}
@@ -66,13 +71,12 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
  * }
  * </code>
  *
+ * @param <S> the type of ExpiringSession
  * @author Rob Winch
  * @since 1.0
- *
- * @param <S>
- *            the type of ExpiringSession
  */
-public abstract class AbstractSessionWebSocketMessageBrokerConfigurer<S extends ExpiringSession> extends AbstractWebSocketMessageBrokerConfigurer {
+public abstract class AbstractSessionWebSocketMessageBrokerConfigurer<S extends ExpiringSession>
+		extends AbstractWebSocketMessageBrokerConfigurer {
 
 	@Autowired
 	@SuppressWarnings("rawtypes")
@@ -87,25 +91,25 @@ public abstract class AbstractSessionWebSocketMessageBrokerConfigurer<S extends 
 	}
 
 	public final void registerStompEndpoints(StompEndpointRegistry registry) {
-		configureStompEndpoints(new SessionStompEndpointRegistry(registry, sessionRepositoryInterceptor()));
+		if (registry instanceof WebMvcStompEndpointRegistry) {
+			WebMvcStompEndpointRegistry mvcRegistry = (WebMvcStompEndpointRegistry) registry;
+			configureStompEndpoints(new SessionStompEndpointRegistry(mvcRegistry,
+					sessionRepositoryInterceptor()));
+		}
 	}
 
-
 	/**
-	 * Register STOMP endpoints mapping each to a specific URL and (optionally)
-	 * enabling and configuring SockJS fallback options with a
-	 * {@link SessionRepositoryMessageInterceptor} automatically added as an
-	 * interceptor.
+	 * Register STOMP endpoints mapping each to a specific URL and (optionally) enabling
+	 * and configuring SockJS fallback options with a
+	 * {@link SessionRepositoryMessageInterceptor} automatically added as an interceptor.
 	 *
-	 * @param registry
-	 *            the {@link StompEndpointRegistry} which automatically has a
-	 *            {@link SessionRepositoryMessageInterceptor} added to it.
+	 * @param registry the {@link StompEndpointRegistry} which automatically has a
+	 * {@link SessionRepositoryMessageInterceptor} added to it.
 	 */
 	protected abstract void configureStompEndpoints(StompEndpointRegistry registry);
 
 	@Override
-	public void configureWebSocketTransport(
-			WebSocketTransportRegistration registration) {
+	public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
 		registration.addDecoratorFactory(wsConnectHandlerDecoratorFactory());
 	}
 
@@ -116,29 +120,46 @@ public abstract class AbstractSessionWebSocketMessageBrokerConfigurer<S extends 
 
 	@Bean
 	public WebSocketConnectHandlerDecoratorFactory wsConnectHandlerDecoratorFactory() {
-		return new WebSocketConnectHandlerDecoratorFactory(eventPublisher);
+		return new WebSocketConnectHandlerDecoratorFactory(this.eventPublisher);
 	}
 
 	@Bean
 	@SuppressWarnings("unchecked")
 	public SessionRepositoryMessageInterceptor<S> sessionRepositoryInterceptor() {
-		return new SessionRepositoryMessageInterceptor<S>(sessionRepository);
+		return new SessionRepositoryMessageInterceptor<S>(this.sessionRepository);
 	}
 
+	/**
+	 * A {@link StompEndpointRegistry} that applies {@link HandshakeInterceptor}.
+	 */
 	static class SessionStompEndpointRegistry implements StompEndpointRegistry {
-		private final StompEndpointRegistry registry;
+		private final WebMvcStompEndpointRegistry registry;
 		private final HandshakeInterceptor interceptor;
 
-		public SessionStompEndpointRegistry(StompEndpointRegistry registry,
+		SessionStompEndpointRegistry(WebMvcStompEndpointRegistry registry,
 				HandshakeInterceptor interceptor) {
 			this.registry = registry;
 			this.interceptor = interceptor;
 		}
 
 		public StompWebSocketEndpointRegistration addEndpoint(String... paths) {
-			StompWebSocketEndpointRegistration endpoints = registry.addEndpoint(paths);
-			endpoints.addInterceptors(interceptor);
+			StompWebSocketEndpointRegistration endpoints = this.registry
+					.addEndpoint(paths);
+			endpoints.addInterceptors(this.interceptor);
 			return endpoints;
+		}
+
+		public void setOrder(int order) {
+			this.registry.setOrder(order);
+		}
+
+		public void setUrlPathHelper(UrlPathHelper urlPathHelper) {
+			this.registry.setUrlPathHelper(urlPathHelper);
+		}
+
+		public WebMvcStompEndpointRegistry setErrorHandler(
+				StompSubProtocolErrorHandler errorHandler) {
+			return this.registry.setErrorHandler(errorHandler);
 		}
 	}
 }

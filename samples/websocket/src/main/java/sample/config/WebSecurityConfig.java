@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2014-2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package sample.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -32,10 +34,9 @@ import org.springframework.session.data.redis.config.annotation.web.http.EnableR
 @EnableWebSecurity
 @EnableGlobalMethodSecurity(prePostEnabled = true)
 // tag::enable-redis-httpsession[]
-@EnableRedisHttpSession//(maxInactiveIntervalInSeconds = 60)
-public class WebSecurityConfig
-	extends WebSecurityConfigurerAdapter {
-// end::enable-redis-httpsession[]
+@EnableRedisHttpSession // (maxInactiveIntervalInSeconds = 60)
+public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
+	// end::enable-redis-httpsession[]
 
 	// @formatter:off
 	@Override
@@ -48,6 +49,14 @@ public class WebSecurityConfig
 				.and()
 			.logout()
 				.permitAll();
+	}
+	// @formatter:on
+
+	// @formatter:off
+	@Override
+	public void configure(WebSecurity web) throws Exception {
+		web
+			.ignoring().antMatchers("/h2-console/**");
 	}
 	// @formatter:on
 
